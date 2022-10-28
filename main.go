@@ -21,7 +21,6 @@ func NewSched(fn func()) *Sched {
 func main() {
 	flag.Parse()
 
-	// ctx := context.Background()
 	sched := NewSched(fn)
 	sched.Start()
 	// sched.Stop()
