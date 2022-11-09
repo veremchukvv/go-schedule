@@ -9,9 +9,8 @@ import (
 )
 
 type Sched struct {
-	Fn      func()
-	LastRun bool
-	mu      sync.Mutex
+	Fn func()
+	wg sync.WaitGroup
 }
 
 func NewSched(fn func()) *Sched {
@@ -22,46 +21,39 @@ func main() {
 	flag.Parse()
 
 	sched := NewSched(fn)
-	sched.Start()
-	// sched.Stop()
+	workCh := make(chan *Sched, 1)
+	ticker := time.NewTicker(time.Millisecond) // Имитируем попытки запуска функции по таймеру
+	glog.Info("Start")
+	cancelCh := time.After(time.Millisecond * 1530) // Задаем таймер на работу планировщика
+
+LOOP:
+	for {
+		select {
+		case <-cancelCh: // Инициируем остановку планировщика по сигналу из канала
+			glog.Info(">>exit")
+			close(workCh) // Закрываем канал
+			ticker.Stop() // Останавливаем счётчик
+
+			for lastRun := range workCh { // Пытаемся дочитать из закрытого канала
+				glog.Info("Last run execution...")
+				lastRun.Fn() // Если что-то осталось, то выполняем функцию ещё раз
+			}
+			break LOOP
+		case <-ticker.C:
+			workCh <- sched
+		case f := <-workCh:
+			glog.Info("starting func execution...")
+			f.wg.Add(1)
+			go func(wg *sync.WaitGroup) {
+				defer f.wg.Done()
+				f.Fn() // Запускаем нашу функцию внутри горутины
+			}(&f.wg)
+			f.wg.Wait()
+		}
+	}
 }
 
 func fn() {
 	time.Sleep(time.Millisecond * 1000) // Имитация 1 секунды длительности работы
 	glog.Info(">>fn")                   // Вывод в лог факта завершения выполнения
 }
-
-func (s *Sched) Start() {
-	var wg sync.Once
-
-	ch := time.After(time.Millisecond * 1530)
-
-LOOP:
-	for {
-		select {
-		case <-ch:
-			glog.Info(">>exit")
-			if s.LastRun {
-				wg.Do(fn)
-			}
-			break LOOP
-		default:
-			if s.mu.TryLock() {
-				go func() {
-					fn()
-					s.mu.Unlock()
-				}() // Вызов функции в отдельном потоке
-			} else {
-				s.LastRun = true
-			}
-		}
-	}
-}
-
-// func (s *Sched) Stop() {
-// 	var wg sync.Once
-
-// 	if s.LastRun {
-// 		wg.Do(fn)
-// 	}
-// }
