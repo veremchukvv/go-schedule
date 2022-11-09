@@ -8,20 +8,11 @@ import (
 	"github.com/golang/glog"
 )
 
-type Sched struct {
-	Fn func()
-	wg sync.WaitGroup
-}
-
-func NewSched(fn func()) *Sched {
-	return &Sched{Fn: fn}
-}
-
 func main() {
 	flag.Parse()
 
-	sched := NewSched(fn)
-	workCh := make(chan *Sched, 1)
+	var wg sync.WaitGroup
+	workCh := make(chan func(), 1)
 	ticker := time.NewTicker(time.Millisecond) // Имитируем попытки запуска функции по таймеру
 	glog.Info("Start")
 	cancelCh := time.After(time.Millisecond * 1530) // Задаем таймер на работу планировщика
@@ -34,21 +25,21 @@ LOOP:
 			close(workCh) // Закрываем канал
 			ticker.Stop() // Останавливаем счётчик
 
-			for lastRun := range workCh { // Пытаемся дочитать из закрытого канала
+			for range workCh { // Пытаемся дочитать из закрытого канала
 				glog.Info("Last run execution...")
-				lastRun.Fn() // Если что-то осталось, то выполняем функцию ещё раз
+				fn() // Если что-то осталось, то выполняем функцию ещё раз
 			}
 			break LOOP
 		case <-ticker.C:
-			workCh <- sched
+			workCh <- fn
 		case f := <-workCh:
 			glog.Info("starting func execution...")
-			f.wg.Add(1)
+			wg.Add(1)
 			go func(wg *sync.WaitGroup) {
-				defer f.wg.Done()
-				f.Fn() // Запускаем нашу функцию внутри горутины
-			}(&f.wg)
-			f.wg.Wait()
+				defer wg.Done()
+				f() // Запускаем нашу функцию внутри горутины
+			}(&wg)
+			wg.Wait()
 		}
 	}
 }
